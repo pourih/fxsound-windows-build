@@ -1,0 +1,95 @@
+name: Build FxSound (Windows x64)
+
+on:
+  push:
+    branches:
+      - main
+      - '**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout CI repository
+        uses: actions/checkout@v4
+        with:
+          path: ci-tools
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Clone FxSound develop/windows
+        shell: powershell
+        run: |
+          Write-Host "Cloning develop/windows branch from upstream fxsound2/fxsound-app..."
+          git clone --branch develop/windows --depth 1 https://github.com/fxsound2/fxsound-app.git src
+          Write-Host "FxSound source tree ready."
+
+      - name: Setup JUCE 8
+        shell: powershell
+        run: |
+          Write-Host "Cloning JUCE 8 modules to C:\JUCE8..."
+          git clone --branch 8.0.6 --depth 1 https://github.com/juce-framework/JUCE.git C:\JUCE8
+          if (-not (Test-Path "C:\JUCE8\modules")) {
+            throw "JUCE modules directory not found at C:\JUCE8\modules"
+          }
+          Write-Host "JUCE 8 ready."
+
+      - name: Build FxSound.sln (Release x64)
+        shell: cmd
+        working-directory: src
+        run: |
+          msbuild fxsound\Project\FxSound.sln /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /m /v:minimal
+
+      - name: Verify build outputs
+        shell: powershell
+        run: |
+          $exe = "src\bin\x64\FxSound.exe"
+          if (-not (Test-Path $exe)) {
+            $fallback = "src\fxsound\Project\x64\Release\App\FxSound.exe"
+            if (Test-Path $fallback) {
+              Copy-Item $fallback $exe -Force
+            } else {
+              throw "Build failed: FxSound.exe was not generated."
+            }
+          }
+          Write-Host "FxSound.exe successfully built: $exe" -ForegroundColor Green
+
+      - name: Prepare Portable Deployment Bundle
+        shell: powershell
+        run: |
+          $bundle = "package"
+          New-Item -ItemType Directory -Path $bundle -Force | Out-Null
+          
+          # Copy application binaries and presets
+          Copy-Item "src\bin\x64\FxSound.exe" -Destination "$bundle\FxSound.exe" -Force
+          if (Test-Path "src\bin\x64\FxSound.pdb") {
+            Copy-Item "src\bin\x64\FxSound.pdb" -Destination "$bundle\FxSound.pdb" -Force
+          }
+          Copy-Item "src\bin\x64\Factsoft" -Destination "$bundle\Factsoft" -Recurse -Force
+
+          # Copy signed driver files
+          $driverDst = "$bundle\Drivers"
+          New-Item -ItemType Directory -Path $driverDst -Force | Out-Null
+          Copy-Item "src\Installer\Drivers\Version14\win10\x64\*" -Destination $driverDst -Force
+
+          # Copy driver helper tools
+          $appsDst = "$bundle\Apps"
+          New-Item -ItemType Directory -Path $appsDst -Force | Out-Null
+          Copy-Item "src\Installer\Apps\Version14\*" -Destination $appsDst -Force
+
+          # Copy installer scripts from ci-tools
+          Copy-Item "ci-tools\Installer\install_and_run.bat" -Destination "$bundle\install_and_run.bat" -Force
+          Copy-Item "ci-tools\Installer\install_and_run.ps1" -Destination "$bundle\install_and_run.ps1" -Force
+
+          Write-Host "Deployment package ready. Contents:"
+          Get-ChildItem -Recurse $bundle | Select-Object FullName
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fxsound-windows-x64-bundle
+          path: package/
+          retention-days: 14
