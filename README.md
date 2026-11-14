@@ -1,16 +1,52 @@
-# FxSound Windows Build & Portable Package
+# FxSound Standalone (v1.2.18-pourih)
 
-Standalone GitHub Actions build pipeline for compiling the `develop/windows` branch of [FxSound](https://github.com/fxsound2/fxsound-app) using JUCE 8 and MSBuild (Visual Studio 2022).
+Combined standalone distribution of [FxSound](https://github.com/fxsound2/fxsound-app) merging the latest `develop/windows` branch with essential stability, efficiency, and headless CLI enhancements.
 
-## What This Workflow Does
-1. Clones the latest `develop/windows` branch of FxSound.
-2. Clones and configures JUCE 8 modules into `C:\JUCE8`.
-3. Builds the complete `FxSound.sln` (GUI app, `audiopassthru`, and `DfxDsp`) in Release x64.
-4. Packages `FxSound.exe` alongside the factory presets (`Factsoft/`) and Microsoft WHQL-signed audio drivers (`Installer/Drivers/Version14/win10/x64/`).
-5. Publishes a ready-to-run portable ZIP bundle (`fxsound-windows-x64-bundle`) with an automated driver registration script (`install_and_run.bat`).
+## What's in this Release (v1.2.18-pourih)
 
-## Running the Output Package Locally
-1. Download `fxsound-windows-x64-bundle.zip` from GitHub Actions.
-2. Extract to a local folder.
-3. Right-click `install_and_run.bat` and select **Run as Administrator** (or run `install_and_run.ps1` in an elevated PowerShell).
-4. The script will automatically install the WHQL driver via `fxdevcon64.exe`, configure the audio endpoint registry keys, and launch `FxSound.exe`.
+### 1. Features from Upstream `develop/windows`
+* **JUCE 8 / C++20 Framework**: Built against the latest audio engine framework with VS 2022 toolset.
+* **Undo Preset Button**: Easily revert EQ adjustments back to the saved state from the preset dropdown.
+* **GPU Rendering Toggle**: Native switch in Settings to enable OpenGL GPU-accelerated UI rendering.
+* **Crash Auto-Relaunch**: Graceful background recovery if an audio device error occurs.
+* **Double-Click Reset**: Double-click any EQ slider or knob to snap back to default.
+
+### 2. Patches from `pourih/fxsound-win-private`
+* **Idle CPU Throttle (<0.1% CPU)**: Added backoff polling when WASAPI reports silence, eliminating the 18% CPU spin on silent audio threads ([#671](https://github.com/fxsound2/fxsound-app/issues/671)).
+* **Audio Service Leak Prevention**: Explicitly unregisters COM notification sinks and releases endpoint objects on device disconnect, preventing memory leaks in `audiosrv.dll` ([#580](https://github.com/fxsound2/fxsound-app/issues/580)).
+* **Volume Burst Fix**: Synchronizes virtual endpoint volume to physical device levels rather than blasting 100% volume on device switch ([#607](https://github.com/fxsound2/fxsound-app/issues/607), [#615](https://github.com/fxsound2/fxsound-app/issues/615)).
+* **Headless CLI Controls**: Control power, mute, volume, presets, and devices silently from scripts, shortcuts, or Stream Deck without stealing window focus ([#27](https://github.com/fxsound2/fxsound-app/issues/27)).
+* **Startup Preset Fix**: Resolves factory presets (`Factsoft/`) relative to the executable path so presets never vanish when starting with Windows ([#107](https://github.com/fxsound2/fxsound-app/issues/107)).
+* **Startup Toggle for Windows 10/11**: Removes legacy Windows 7 check so the launch-on-boot setting is available everywhere ([#18](https://github.com/fxsound2/fxsound-app/issues/18), [#664](https://github.com/fxsound2/fxsound-app/issues/664)).
+
+### 3. Microsoft WHQL-Signed Driver Pairing
+* Bundled with Microsoft Windows Hardware Compatibility Publisher signed virtual audio driver (`fxvad.sys` / `fxvadntamd64.cat`).
+* Inno Setup installer includes an explicit prompt/checkbox to install the driver during setup.
+
+---
+
+## Headless CLI Automation
+
+```powershell
+# Power toggle
+FxSound.exe --toggle
+FxSound.exe --power on    # or: --power off
+
+# Mute toggle
+FxSound.exe --toggle-mute
+FxSound.exe --mute on     # or: --mute off
+
+# Volume (0 - 100)
+FxSound.exe --volume 75
+
+# Preset switch (case-insensitive / partial match)
+FxSound.exe --preset "Gaming"
+FxSound.exe --preset "Music"
+
+# Output device switch (case-insensitive / partial match)
+FxSound.exe --device "Headphones"
+FxSound.exe --output "Realtek"
+
+# Status dump
+FxSound.exe --status
+```

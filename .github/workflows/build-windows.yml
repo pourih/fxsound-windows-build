@@ -1,4 +1,4 @@
-name: Build FxSound (Windows x64)
+name: Build FxSound Standalone (v1.2.18-pourih)
 
 on:
   push:
@@ -14,11 +14,22 @@ jobs:
     steps:
       - name: Checkout CI repository
         uses: actions/checkout@v4
-        with:
-          path: ci-tools
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          Write-Host "Installing Inno Setup 6..."
+          choco install innosetup --no-progress
+          $isccPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (Test-Path $isccPath) {
+            Write-Host "Inno Setup compiler found at $isccPath"
+            echo "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          } else {
+            throw "ISCC.exe not found after installation."
+          }
 
       - name: Clone FxSound develop/windows
         shell: powershell
@@ -26,6 +37,11 @@ jobs:
           Write-Host "Cloning develop/windows branch from upstream fxsound2/fxsound-app..."
           git clone --branch develop/windows --depth 1 https://github.com/fxsound2/fxsound-app.git src
           Write-Host "FxSound source tree ready."
+
+      - name: Apply Performance, CLI & Stability Patches
+        shell: powershell
+        run: |
+          & .\scripts\patch-fxsound.ps1 -SrcDir src
 
       - name: Setup JUCE 8
         shell: powershell
@@ -43,7 +59,7 @@ jobs:
         run: |
           msbuild fxsound\Project\FxSound.sln /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /m /v:minimal
 
-      - name: Verify build outputs
+      - name: Verify build outputs & Version Branding
         shell: powershell
         run: |
           $exe = "src\bin\x64\FxSound.exe"
@@ -55,41 +71,31 @@ jobs:
               throw "Build failed: FxSound.exe was not generated."
             }
           }
-          Write-Host "FxSound.exe successfully built: $exe" -ForegroundColor Green
+          $verInfo = (Get-Item $exe).VersionInfo
+          Write-Host "Built executable version:" -ForegroundColor Green
+          Write-Host "  Product Version: $($verInfo.ProductVersion)"
+          Write-Host "  File Version:    $($verInfo.FileVersion)"
+          if ($verInfo.ProductVersion -ne "1.2.18-pourih") {
+            Write-Warning "Expected ProductVersion 1.2.18-pourih, got $($verInfo.ProductVersion)"
+          }
 
-      - name: Prepare Portable Deployment Bundle
+      - name: Compile Inno Setup Installer
+        shell: cmd
+        run: |
+          iscc Installer\FxSound_Setup.iss
+
+      - name: Verify Installer Executable
         shell: powershell
         run: |
-          $bundle = "package"
-          New-Item -ItemType Directory -Path $bundle -Force | Out-Null
-          
-          # Copy application binaries and presets
-          Copy-Item "src\bin\x64\FxSound.exe" -Destination "$bundle\FxSound.exe" -Force
-          if (Test-Path "src\bin\x64\FxSound.pdb") {
-            Copy-Item "src\bin\x64\FxSound.pdb" -Destination "$bundle\FxSound.pdb" -Force
+          $installer = Get-ChildItem "installer_output\fxsound_setup_*.exe" | Select-Object -First 1
+          if (-not $installer) {
+            throw "Installer executable not found in installer_output!"
           }
-          Copy-Item "src\bin\x64\Factsoft" -Destination "$bundle\Factsoft" -Recurse -Force
+          Write-Host "Created standalone installer: $($installer.FullName) ($($installer.Length) bytes)" -ForegroundColor Green
 
-          # Copy signed driver files
-          $driverDst = "$bundle\Drivers"
-          New-Item -ItemType Directory -Path $driverDst -Force | Out-Null
-          Copy-Item "src\Installer\Drivers\Version14\win10\x64\*" -Destination $driverDst -Force
-
-          # Copy driver helper tools
-          $appsDst = "$bundle\Apps"
-          New-Item -ItemType Directory -Path $appsDst -Force | Out-Null
-          Copy-Item "src\Installer\Apps\Version14\*" -Destination $appsDst -Force
-
-          # Copy installer scripts from ci-tools
-          Copy-Item "ci-tools\Installer\install_and_run.bat" -Destination "$bundle\install_and_run.bat" -Force
-          Copy-Item "ci-tools\Installer\install_and_run.ps1" -Destination "$bundle\install_and_run.ps1" -Force
-
-          Write-Host "Deployment package ready. Contents:"
-          Get-ChildItem -Recurse $bundle | Select-Object FullName
-
-      - name: Upload Artifact
+      - name: Upload Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fxsound-windows-x64-bundle
-          path: package/
-          retention-days: 14
+          name: fxsound_setup_1.2.18-pourih
+          path: installer_output/
+          retention-days: 30
