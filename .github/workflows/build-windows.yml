@@ -7,6 +7,9 @@ on:
       - '**'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-2022
@@ -99,3 +102,17 @@ jobs:
           name: fxsound_setup_1.2.18-pourih
           path: installer_output/
           retention-days: 30
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: v1.2.18-pourih
+          name: FxSound v1.2.18-pourih (Standalone Installer)
+          body: |
+            Standalone Windows installer for FxSound v1.2.18-pourih with integrated Microsoft WHQL-signed audio driver, idle CPU throttle fix, audio service leak fixes, and headless CLI automation.
+            
+            ### Direct Download
+            Download **`fxsound_setup_1.2.18-pourih.exe`** below and run as Administrator.
+          files: installer_output/fxsound_setup_*.exe
+          fail_on_unmatched_files: true
